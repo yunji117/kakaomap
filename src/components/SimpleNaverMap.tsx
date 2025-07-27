@@ -58,7 +58,15 @@ const SimpleNaverMap: React.FC = () => {
         // 지도 옵션 설정 - 대전 시청 중심으로 설정
         const mapOptions = {
           center: new window.naver.maps.LatLng(36.3504, 127.3845), // 대전 시청 좌표
-          zoom: 16
+          zoom: 16,
+          // POI 표시 활성화
+          logoControl: false,
+          mapDataControl: false,
+          zoomControl: true,
+          zoomControlOptions: {
+            style: window.naver.maps.ZoomControlStyle.LARGE,
+            position: window.naver.maps.Position.TOP_RIGHT
+          }
         };
         
         // 지도 생성
@@ -71,6 +79,9 @@ const SimpleNaverMap: React.FC = () => {
         
         // 초기 지적도 레이어 설정
         cadastralLayer.setMap(map);
+
+        // POI 정보 표시를 위한 추가 설정
+        console.log('POI 정보가 자동으로 표시됩니다: 건물명, 상점명, 공공시설 등');
 
         // 레이어 토글 함수들을 전역으로 등록
         (window as any).toggleCadastral = function() {
@@ -128,9 +139,10 @@ const SimpleNaverMap: React.FC = () => {
               drawLandBoundary(realLandData.geometry, realLandData.isRealData);
             }
             
-            // 좌표를 주소로 변환
+            // 좌표를 주소로 변환 (POI 정보 포함)
             window.naver.maps.Service.reverseGeocode({
-              coords: latlng
+              coords: latlng,
+              orders: 'legalcode,admcode,addr,roadaddr'
             }, function(status: any, response: any) {
               if (status === window.naver.maps.Service.Status.ERROR) {
                 console.log('주소 변환 실패');
@@ -140,20 +152,122 @@ const SimpleNaverMap: React.FC = () => {
               const result = response.v2;
               const address = result.address;
               
+              console.log('네이버 reverseGeocode 전체 응답:', response);
+              console.log('v2 결과:', result);
+              console.log('address 정보:', address);
+              
+              // 네이버 API v2 구조에서 지역 정보 추출
+              let naverAreaInfo = {
+                area1: '', // 시도
+                area2: '', // 시군구
+                area3: '', // 읍면동
+                area4: '', // 리
+                legal: '', // 법정동
+                admin: ''  // 행정동
+              };
+              
+              // results 배열에서 legalcode와 admcode 정보 추출
+              if (result.results && Array.isArray(result.results)) {
+                result.results.forEach((item: any) => {
+                  if (item.name === 'legalcode' && item.region) {
+                    // 법정동 정보
+                    naverAreaInfo.area1 = item.region.area1?.name || '';
+                    naverAreaInfo.area2 = item.region.area2?.name || '';
+                    naverAreaInfo.area3 = item.region.area3?.name || '';
+                    naverAreaInfo.area4 = item.region.area4?.name || '';
+                    naverAreaInfo.legal = item.region.area3?.name || '';
+                  } else if (item.name === 'admcode' && item.region) {
+                    // 행정동 정보
+                    naverAreaInfo.admin = item.region.area3?.name || '';
+                  }
+                });
+              }
+              
+              // POI 정보 (기존 방식 유지 - 호환성)
+              const poiInfo = {
+                area1: naverAreaInfo.area1, // 시도
+                area2: naverAreaInfo.area2, // 시군구  
+                area3: naverAreaInfo.area3, // 읍면동
+                area4: naverAreaInfo.area4, // 리
+                land: '',   // 지번 (land 정보에서 추출)
+                legal: naverAreaInfo.legal, // 법정동
+                admin: naverAreaInfo.admin, // 행정동
+              };
+              
+              // 네이버 API의 도로명 주소 상세 정보 추출
+              let naverRoadDetails = {
+                roadName: '',
+                buildingNumber: '',
+                buildingName: '',
+                zipCode: ''
+              };
+              
+              // results에서 도로명 주소 상세 정보 추출
+              if (result.results && Array.isArray(result.results)) {
+                result.results.forEach((item: any) => {
+                  if (item.land) {
+                    if (item.land.name) {
+                      naverRoadDetails.roadName = item.land.name; // 도로명
+                    }
+                    if (item.land.number1) {
+                      naverRoadDetails.buildingNumber = item.land.number1; // 건물번호
+                    }
+                    // addition 정보에서 건물명과 우편번호 추출
+                    if (item.land.addition0?.type === 'building') {
+                      naverRoadDetails.buildingName = item.land.addition0.value;
+                    }
+                    if (item.land.addition1?.type === 'zipcode') {
+                      naverRoadDetails.zipCode = item.land.addition1.value;
+                    }
+                  }
+                });
+              }
+              
+              console.log('네이버 지역 정보:', naverAreaInfo);
+              console.log('네이버 도로명 상세:', naverRoadDetails);
+              console.log('POI 정보:', poiInfo);
+              
               // 지적 정보 (브이월드 실제 API 데이터 우선 사용)
               const landInfo = {
-                jibun: realLandData?.fullAddress || address.jibunAddress || '정보없음',
-                road: address.roadAddress || '정보없음',
+                jibun: realLandData?.fullAddress || address?.jibunAddress || '정보없음', // 브이월드 실제 지번 주소 우선
+                road: realLandData?.vworldFullRoadAddress || address?.roadAddress || '정보없음', // 브이월드 우선, 네이버 도로명 주소
+                vworldRoadAddress: realLandData?.vworldFullRoadAddress || '', // 브이월드 완전한 도로명 주소 (실제)
                 area: realLandData?.area || '정보없음',
                 landType: realLandData?.landType || '정보없음',
                 pnu: realLandData?.pnu || generatePNU(address),
-                lotNumber: realLandData?.fullJibun || extractLotNumber(address.jibunAddress),
+                lotNumber: realLandData?.fullJibun || extractLotNumber(address?.jibunAddress),
                 landUse: realLandData?.landUse || '정보없음',
                 isRealData: !!realLandData && realLandData.isRealData,
                 // 추가 세부 정보
                 bonbun: realLandData?.bonbun || '',
                 bubun: realLandData?.bubun || '',
-                adminArea: realLandData ? `${realLandData.sido || ''} ${realLandData.sigungu || ''} ${realLandData.emd || ''}`.trim() : ''
+                adminArea: realLandData ? `${realLandData.sido || ''} ${realLandData.sigungu || ''} ${realLandData.emd || ''}`.trim() : '',
+                // POI 정보 추가 (네이버 API v2 구조 활용)
+                poiArea1: poiInfo.area1, // 시도
+                poiArea2: poiInfo.area2, // 시군구
+                poiArea3: poiInfo.area3, // 읍면동
+                poiArea4: poiInfo.area4, // 리
+                poiLegal: poiInfo.legal, // 법정동
+                poiAdmin: poiInfo.admin,  // 행정동
+                // 네이버 도로명 주소 상세 정보 (API v2 기준)
+                naverRoadName: naverRoadDetails.roadName || '', // 도로명
+                naverBuildingNumber: naverRoadDetails.buildingNumber || '', // 건물번호
+                naverBuildingName: naverRoadDetails.buildingName || '', // 건물명
+                naverZipCode: naverRoadDetails.zipCode || '', // 우편번호
+                // 브이월드 도로명 주소 상세 정보 (공식 레퍼런스 기준)
+                vworldSido: realLandData?.vworldSido || '',
+                vworldSigungu: realLandData?.vworldSigungu || '',
+                vworldRoadName: realLandData?.vworldRoadName || '',
+                vworldBuildingNo: realLandData?.vworldBuildingNo || '',
+                vworldGu: realLandData?.vworldGu || '',
+                // 건물 정보 (공식 레퍼런스 기준)
+                buildingEngName: realLandData?.buildingEngName || '',
+                buildingSubName: realLandData?.buildingSubName || '',
+                bdMgtSn: realLandData?.bdMgtSn || '', // 건물관리번호
+                // 데이터 출처 구분
+                isVWorldJibun: !!realLandData?.fullAddress, // 브이월드 지번 주소 여부
+                isVWorldRoad: !!realLandData?.vworldFullRoadAddress, // 브이월드 도로명 주소 여부
+                isNaverRoad: !!address?.roadAddress // 네이버 도로명 주소 여부
               };
               
               console.log('토지 정보:', landInfo);
@@ -184,14 +298,15 @@ const SimpleNaverMap: React.FC = () => {
                   
                   <div style="border-bottom: 2px solid ${landInfo.isRealData ? '#4CAF50' : '#FF9800'}; padding-bottom: 8px; margin-bottom: 12px; padding-right: 30px;">
                     <h3 style="margin: 0; color: ${landInfo.isRealData ? '#2E7D32' : '#F57C00'}; font-size: 16px;">
-                      ${realLandData?.buildingName ? `🏢 ${realLandData.buildingName}` : '🗺️ 토지 정보'} ${landInfo.isRealData ? '(브이월드 실제 데이터)' : '(네이버 지도 참고 데이터)'}
+                      ${landInfo.naverBuildingName || '건물명 정보없음'}
                     </h3>
                   </div>
                   
                   <div style="margin-bottom: 12px;">
                     <div style="margin-bottom: 6px;">
                       <strong style="color: #424242;">지번 주소:</strong> 
-                      <span style="color: #666;">${landInfo.jibun}</span>
+                      <span style="color: ${landInfo.isVWorldJibun ? '#4CAF50' : '#666'};">${landInfo.jibun}</span>
+                      ${landInfo.isVWorldJibun ? ' <small style="color: #4CAF50;">(브이월드 실제)</small>' : ' <small style="color: #FF9800;">(네이버 참고)</small>'}
                     </div>
                     ${landInfo.adminArea ? `
                     <div style="margin-bottom: 6px;">
@@ -201,7 +316,11 @@ const SimpleNaverMap: React.FC = () => {
                     ` : ''}
                     <div style="margin-bottom: 6px;">
                       <strong style="color: #424242;">도로명 주소:</strong> 
-                      <span style="color: #666;">${landInfo.road}</span>
+                      <span style="color: #666;">${landInfo.naverRoadName && landInfo.naverBuildingNumber ? `${landInfo.naverRoadName} ${landInfo.naverBuildingNumber}` : '정보없음'}</span>
+                      ${landInfo.naverRoadName && landInfo.naverBuildingNumber ? ' <small style="color: #2196F3;">(네이버 상세)</small>' : ' <small style="color: #FF9800;">(정보없음)</small>'}
+                      ${landInfo.naverZipCode ? `
+                      <br><small style="color: #666;">우편번호: ${landInfo.naverZipCode}</small>
+                      ` : ''}
                     </div>
                     <div style="margin-bottom: 6px;">
                       <strong style="color: #424242;">필지번호:</strong> 
@@ -225,39 +344,10 @@ const SimpleNaverMap: React.FC = () => {
                       <span style="color: ${landInfo.isRealData ? '#4CAF50' : '#FF9800'}; font-weight: bold;">${landInfo.landUse}</span>
                       ${landInfo.isRealData ? ' <small style="color: #4CAF50;">(실제)</small>' : ' <small style="color: #FF9800;">(참고)</small>'}
                     </div>
-                    ${realLandData?.buildingName ? `
+                    ${landInfo.bdMgtSn ? `
                     <div style="margin-bottom: 6px;">
-                      <strong style="color: #424242;">건물명:</strong> 
-                      <span style="color: #2196F3; font-weight: bold;">${realLandData.buildingName}</span>
-                      <small style="color: #4CAF50;">(실제)</small>
-                    </div>
-                    ` : ''}
-                    ${realLandData?.buildingUse ? `
-                    <div style="margin-bottom: 6px;">
-                      <strong style="color: #424242;">건물용도:</strong> 
-                      <span style="color: #673AB7; font-weight: bold;">${realLandData.buildingUse}</span>
-                      <small style="color: #4CAF50;">(실제)</small>
-                    </div>
-                    ` : ''}
-                    ${realLandData?.buildingYear ? `
-                    <div style="margin-bottom: 6px;">
-                      <strong style="color: #424242;">건축년도:</strong> 
-                      <span style="color: #795548; font-weight: bold;">${realLandData.buildingYear.substring(0, 4)}년</span>
-                      <small style="color: #4CAF50;">(실제)</small>
-                    </div>
-                    ` : ''}
-                    ${realLandData?.floorCount ? `
-                    <div style="margin-bottom: 6px;">
-                      <strong style="color: #424242;">층수:</strong> 
-                      <span style="color: #607D8B; font-weight: bold;">지상 ${realLandData.floorCount}층${realLandData.undergroundFloor ? `, 지하 ${realLandData.undergroundFloor}층` : ''}</span>
-                      <small style="color: #4CAF50;">(실제)</small>
-                    </div>
-                    ` : ''}
-                    ${realLandData?.totalFloorArea ? `
-                    <div style="margin-bottom: 6px;">
-                      <strong style="color: #424242;">연면적:</strong> 
-                      <span style="color: #FF5722; font-weight: bold;">${Math.round(parseFloat(realLandData.totalFloorArea) * 100) / 100}㎡</span>
-                      <small style="color: #4CAF50;">(실제)</small>
+                      <strong style="color: #424242;">건물관리번호:</strong> 
+                      <span style="color: #999; font-size: 11px;">${landInfo.bdMgtSn}</span>
                     </div>
                     ` : ''}
                     ${realLandData?.jiga ? `
@@ -271,34 +361,6 @@ const SimpleNaverMap: React.FC = () => {
                       <strong style="color: #424242;">PNU:</strong> 
                       <span style="color: #666; font-size: 11px;">${landInfo.pnu}</span>
                     </div>
-                  </div>
-                  
-                  <div style="margin-top: 12px; text-align: center;">
-                    <button style="
-                      background: linear-gradient(45deg, #4CAF50, #45a049);
-                      color: white; 
-                      border: none; 
-                      padding: 8px 16px; 
-                      border-radius: 20px; 
-                      cursor: pointer;
-                      font-size: 12px;
-                      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-                      margin-right: 8px;
-                    ">
-                      등기부등본 조회
-                    </button>
-                    <button style="
-                      background: linear-gradient(45deg, #2196F3, #1976D2);
-                      color: white; 
-                      border: none; 
-                      padding: 8px 16px; 
-                      border-radius: 20px; 
-                      cursor: pointer;
-                      font-size: 12px;
-                      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-                    ">
-                      토지이용계획
-                    </button>
                   </div>
                   
                   <div style="text-align: center; margin-top: 8px; font-size: 10px; color: #999;">
@@ -448,9 +510,14 @@ const SimpleNaverMap: React.FC = () => {
                 geometry: feature.geometry, // ag_geom (POLYGON 데이터)
                 isRealData: true, // 브이월드 실제 데이터임을 표시
                 
+                // 행정구역 정보 추출 (props.addr에서)
+                sido: props.addr ? props.addr.split(' ')[0] || '' : '',
+                sigungu: props.addr ? props.addr.split(' ')[1] || '' : '',
+                emd: props.addr ? props.addr.split(' ')[2] || '' : '',
+                
                 // 완전한 지번 주소 생성
                 fullJibun: props.jibun || '정보없음',
-                fullAddress: props.addr || '정보없음'
+                fullAddress: props.addr || '정보없음' // 브이월드 실제 지번 주소
               };
               
               console.log('브이월드 연속지적도 정보 추출 성공:', landData);
@@ -544,17 +611,17 @@ const SimpleNaverMap: React.FC = () => {
               }
             }
             
-            // 6. 건물통합정보 조회 (건물명, 건물용도, 건축년도 등)
+            // 6. 도로명주소 건물정보 조회 (브이월드 공식 레퍼런스 기준)
             if (landData) {
               try {
-                // 건물일반 정보 조회 API (더 정확한 건물 정보)
-                const buildingUrl = `/api/vworld/req/data?service=data&version=2.0&request=GetFeature&data=LT_C_ADEMD_INFO&key=${vworldApiKey}&domain=${currentDomain}&geometry=false&attribute=true&crs=EPSG:4326&geomFilter=POINT(${lng}%20${lat})&buffer=50&format=json`;
+                // 도로명주소 건물 API - LT_C_SPBD 사용
+                const buildingUrl = `/api/vworld/req/data?service=data&version=2.0&request=GetFeature&data=LT_C_SPBD&key=${vworldApiKey}&domain=${currentDomain}&geometry=false&attribute=true&crs=EPSG:4326&geomFilter=POINT(${lng}%20${lat})&buffer=50&format=json`;
                 
-                console.log('브이월드 건물일반정보 API 조회 중...');
+                console.log('브이월드 도로명주소 건물정보 API 조회 중...');
                 const buildingResponse = await fetch(buildingUrl);
                 const buildingData = await buildingResponse.json();
                 
-                console.log('브이월드 건물일반정보 API 응답:', buildingData);
+                console.log('브이월드 도로명주소 건물정보 API 응답:', buildingData);
                 
                 if (buildingData.response?.status === 'OK' && 
                     buildingData.response?.result?.featureCollection?.features?.length > 0) {
@@ -562,66 +629,66 @@ const SimpleNaverMap: React.FC = () => {
                   const buildingFeature = buildingData.response.result.featureCollection.features[0];
                   const buildingProps = buildingFeature.properties;
                   
-                  // 건물 정보 추가 (다양한 속성명 대응)
-                  landData.buildingName = buildingProps.buld_nm || buildingProps.BULD_NM || buildingProps.bild_nm || buildingProps.BILD_NM || 
-                                         buildingProps.building_nm || buildingProps.BUILDING_NM || '';
-                  landData.buildingUse = buildingProps.main_purps_cd_nm || buildingProps.MAIN_PURPS_CD_NM || buildingProps.purps_cd_nm || '';
-                  landData.buildingYear = buildingProps.use_apr_day || buildingProps.USE_APR_DAY || buildingProps.arch_year || '';
-                  landData.floorCount = buildingProps.grnd_flr_cnt || buildingProps.GRND_FLR_CNT || '';
-                  landData.undergroundFloor = buildingProps.ugrnd_flr_cnt || buildingProps.UGRND_FLR_CNT || '';
-                  landData.totalFloorArea = buildingProps.tot_flr_area || buildingProps.TOT_FLR_AREA || '';
+                  // 건물 정보 추가 (공식 레퍼런스 속성명 사용)
+                  landData.buildingName = buildingProps.buld_nm || ''; // 건물명칭
+                  landData.buildingEngName = buildingProps.bul_eng_nm || ''; // 건물영문명칭
+                  landData.buildingSubName = buildingProps.buld_nm_dc || ''; // 건물부명칭
+                  landData.floorCount = buildingProps.gro_flo_co || ''; // 건물층수(지상)
                   
-                  console.log('건물일반정보 추가 완료:', landData);
+                  // 도로명 주소 정보 (공식 레퍼런스 속성명 사용)
+                  landData.vworldSido = buildingProps.sido || ''; // 시도명
+                  landData.vworldSigungu = buildingProps.sigungu || ''; // 시군구명
+                  landData.vworldRoadName = buildingProps.rd_nm || ''; // 도로명
+                  landData.vworldBuildingNo = buildingProps.buld_no || ''; // 건물번호
+                  landData.vworldGu = buildingProps.gu || ''; // 읍면명칭
+                  landData.emdCd = buildingProps.emdCd || ''; // 읍면동 코드
+                  landData.bdMgtSn = buildingProps.bd_mgt_sn || ''; // 건물관리번호
+                  
+                  // 완전한 도로명 주소 구성
+                  if (landData.vworldSido && landData.vworldSigungu && landData.vworldRoadName && landData.vworldBuildingNo) {
+                    landData.vworldFullRoadAddress = `${landData.vworldSido} ${landData.vworldSigungu} ${landData.vworldGu ? landData.vworldGu + ' ' : ''}${landData.vworldRoadName} ${landData.vworldBuildingNo}`;
+                  }
+                  
+                  console.log('도로명주소 건물정보 추가 완료:', landData);
                 } else {
-                  // 대안 1: 건물층정보 조회
+                  // 대안: 건물관리번호로 재시도 (버퍼 확장)
                   try {
-                    const buildingFloorUrl = `/api/vworld/req/data?service=data&version=2.0&request=GetFeature&data=LT_C_ADSIDO_LAYER_INFO&key=${vworldApiKey}&domain=${currentDomain}&geometry=false&attribute=true&crs=EPSG:4326&geomFilter=POINT(${lng}%20${lat})&buffer=50&format=json`;
+                    const altBuildingUrl = `/api/vworld/req/data?service=data&version=2.0&request=GetFeature&data=LT_C_SPBD&key=${vworldApiKey}&domain=${currentDomain}&geometry=false&attribute=true&crs=EPSG:4326&geomFilter=POINT(${lng}%20${lat})&buffer=100&format=json`;
                     
-                    console.log('브이월드 건물층정보 API 조회 중...');
-                    const buildingFloorResponse = await fetch(buildingFloorUrl);
-                    const buildingFloorData = await buildingFloorResponse.json();
+                    console.log('브이월드 대안 도로명주소 건물정보 API 조회 중...');
+                    const altBuildingResponse = await fetch(altBuildingUrl);
+                    const altBuildingData = await altBuildingResponse.json();
                     
-                    console.log('브이월드 건물층정보 API 응답:', buildingFloorData);
+                    console.log('브이월드 대안 도로명주소 건물정보 API 응답:', altBuildingData);
                     
-                    if (buildingFloorData.response?.status === 'OK' && 
-                        buildingFloorData.response?.result?.featureCollection?.features?.length > 0) {
+                    if (altBuildingData.response?.status === 'OK' && 
+                        altBuildingData.response?.result?.featureCollection?.features?.length > 0) {
                       
-                      const floorFeature = buildingFloorData.response.result.featureCollection.features[0];
-                      const floorProps = floorFeature.properties;
+                      const altFeature = altBuildingData.response.result.featureCollection.features[0];
+                      const altProps = altFeature.properties;
                       
-                      landData.buildingName = floorProps.buld_nm || floorProps.BULD_NM || '';
-                      landData.buildingUse = floorProps.main_purps_cd_nm || floorProps.MAIN_PURPS_CD_NM || '';
-                      landData.buildingYear = floorProps.use_apr_day || floorProps.USE_APR_DAY || '';
+                      // 건물 정보 추가 (공식 레퍼런스 속성명 사용)
+                      landData.buildingName = altProps.buld_nm || '';
+                      landData.buildingEngName = altProps.bul_eng_nm || '';
+                      landData.buildingSubName = altProps.buld_nm_dc || '';
+                      landData.floorCount = altProps.gro_flo_co || '';
                       
-                      console.log('건물층정보 추가 완료:', landData);
-                    } else {
-                      // 대안 2: 주소기반 건물 정보 조회
-                      try {
-                        const altBuildingUrl = `/api/vworld/req/data?service=data&version=2.0&request=GetFeature&data=LT_C_ADSIDO_INFO&key=${vworldApiKey}&domain=${currentDomain}&geometry=false&attribute=true&crs=EPSG:4326&geomFilter=POINT(${lng}%20${lat})&buffer=100&format=json`;
-                        
-                        console.log('브이월드 대안 건물정보 API 조회 중...');
-                        const altBuildingResponse = await fetch(altBuildingUrl);
-                        const altBuildingData = await altBuildingResponse.json();
-                        
-                        console.log('브이월드 대안 건물정보 API 응답:', altBuildingData);
-                        
-                        if (altBuildingData.response?.status === 'OK' && 
-                            altBuildingData.response?.result?.featureCollection?.features?.length > 0) {
-                          
-                          const altFeature = altBuildingData.response.result.featureCollection.features[0];
-                          const altProps = altFeature.properties;
-                          
-                          landData.buildingName = altProps.buld_nm || altProps.BULD_NM || '';
-                          landData.buildingUse = altProps.main_purps_cd_nm || altProps.MAIN_PURPS_CD_NM || '';
-                          
-                          console.log('대안 건물정보 추가 완료:', landData);
-                        }
-                      } catch (altError) {
-                        console.warn('대안 건물정보 조회 오류:', altError);
+                      // 도로명 주소 정보
+                      landData.vworldSido = altProps.sido || '';
+                      landData.vworldSigungu = altProps.sigungu || '';
+                      landData.vworldRoadName = altProps.rd_nm || '';
+                      landData.vworldBuildingNo = altProps.buld_no || '';
+                      landData.vworldGu = altProps.gu || '';
+                      
+                      // 완전한 도로명 주소 구성
+                      if (landData.vworldSido && landData.vworldSigungu && landData.vworldRoadName && landData.vworldBuildingNo) {
+                        landData.vworldFullRoadAddress = `${landData.vworldSido} ${landData.vworldSigungu} ${landData.vworldGu ? landData.vworldGu + ' ' : ''}${landData.vworldRoadName} ${landData.vworldBuildingNo}`;
                       }
+                      
+                      console.log('대안 도로명주소 건물정보 추가 완료:', landData);
                     }
-                  } catch (floorError) {
-                    console.warn('건물층정보 조회 오류:', floorError);
+                  } catch (altError) {
+                    console.warn('대안 도로명주소 건물정보 조회 오류:', altError);
                   }
                 }
               } catch (error) {

@@ -50,6 +50,9 @@ interface MapOptions {
     style: string;
     position: string;
   };
+  logoControl?: boolean;
+  mapDataControl?: boolean;
+  scaleControl?: boolean;
 }
 
 interface InfoWindowOptions {
