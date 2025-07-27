@@ -8,4 +8,17 @@ export default defineConfig({
     loader: 'tsx',
     include: /src\/.*\.[tj]sx?$/,
   },
+  server: {
+    proxy: {
+      '/api/vworld': {
+        target: 'https://api.vworld.kr',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/vworld/, ''),
+        secure: true,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; Vite/1.0)',
+        }
+      }
+    }
+  }
 })
