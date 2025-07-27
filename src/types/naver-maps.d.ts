@@ -3,7 +3,7 @@ declare global {
   interface Window {
     naver: {
       maps: {
-        Map: new (element: HTMLElement, options: MapOptions) => NaverMap;
+        Map: new (element: HTMLElement, options?: MapOptions) => NaverMap;
         LatLng: new (lat: number, lng: number) => LatLng;
         CadastralLayer: new () => CadastralLayer;
         Position: {
@@ -22,8 +22,8 @@ declare global {
 }
 
 interface MapOptions {
-  center: LatLng;
-  zoom: number;
+  center?: LatLng;
+  zoom?: number;
   mapTypeControl?: boolean;
   mapTypeControlOptions?: {
     style: string;
