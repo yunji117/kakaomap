@@ -1,7 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const SimpleNaverMap: React.FC = () => {
   const mapRef = useRef<HTMLDivElement>(null);
+  const [isCadastralMode, setIsCadastralMode] = useState(true); // 지적도 모드 상태
+  const [isSatelliteMode, setIsSatelliteMode] = useState(false); // 위성 모드 상태
 
   useEffect(() => {
     // 네이버 지도 API 스크립트 로드
@@ -62,9 +64,40 @@ const SimpleNaverMap: React.FC = () => {
         // 지도 생성
         const map = new window.naver.maps.Map(mapDiv, mapOptions);
 
-        // 지적도 레이어 추가
+        // 지적도 레이어와 위성 레이어 생성
         const cadastralLayer = new window.naver.maps.CadastralLayer();
+        let isCadastralActive = true;
+        let isSatelliteActive = false;
+        
+        // 초기 지적도 레이어 설정
         cadastralLayer.setMap(map);
+
+        // 레이어 토글 함수들을 전역으로 등록
+        (window as any).toggleCadastral = function() {
+          if (isCadastralActive) {
+            cadastralLayer.setMap(null);
+            isCadastralActive = false;
+            setIsCadastralMode(false);
+          } else {
+            cadastralLayer.setMap(map);
+            isCadastralActive = true;
+            setIsCadastralMode(true);
+          }
+        };
+
+        (window as any).toggleSatellite = function() {
+          if (!isSatelliteActive) {
+            // 위성 레이어로 변경
+            map.setMapTypeId('satellite');
+            isSatelliteActive = true;
+            setIsSatelliteMode(true);
+          } else {
+            // 일반 지도로 변경
+            map.setMapTypeId('normal');
+            isSatelliteActive = false;
+            setIsSatelliteMode(false);
+          }
+        };
 
         // 현재 정보창과 경계선 저장용
         let currentInfoWindow: any = null;
@@ -151,7 +184,7 @@ const SimpleNaverMap: React.FC = () => {
                   
                   <div style="border-bottom: 2px solid ${landInfo.isRealData ? '#4CAF50' : '#FF9800'}; padding-bottom: 8px; margin-bottom: 12px; padding-right: 30px;">
                     <h3 style="margin: 0; color: ${landInfo.isRealData ? '#2E7D32' : '#F57C00'}; font-size: 16px;">
-                      토지 정보 ${landInfo.isRealData ? '(브이월드 실제 데이터)' : '(네이버 지도 참고 데이터)'}
+                      ${realLandData?.buildingName ? `🏢 ${realLandData.buildingName}` : '🗺️ 토지 정보'} ${landInfo.isRealData ? '(브이월드 실제 데이터)' : '(네이버 지도 참고 데이터)'}
                     </h3>
                   </div>
                   
@@ -192,6 +225,41 @@ const SimpleNaverMap: React.FC = () => {
                       <span style="color: ${landInfo.isRealData ? '#4CAF50' : '#FF9800'}; font-weight: bold;">${landInfo.landUse}</span>
                       ${landInfo.isRealData ? ' <small style="color: #4CAF50;">(실제)</small>' : ' <small style="color: #FF9800;">(참고)</small>'}
                     </div>
+                    ${realLandData?.buildingName ? `
+                    <div style="margin-bottom: 6px;">
+                      <strong style="color: #424242;">건물명:</strong> 
+                      <span style="color: #2196F3; font-weight: bold;">${realLandData.buildingName}</span>
+                      <small style="color: #4CAF50;">(실제)</small>
+                    </div>
+                    ` : ''}
+                    ${realLandData?.buildingUse ? `
+                    <div style="margin-bottom: 6px;">
+                      <strong style="color: #424242;">건물용도:</strong> 
+                      <span style="color: #673AB7; font-weight: bold;">${realLandData.buildingUse}</span>
+                      <small style="color: #4CAF50;">(실제)</small>
+                    </div>
+                    ` : ''}
+                    ${realLandData?.buildingYear ? `
+                    <div style="margin-bottom: 6px;">
+                      <strong style="color: #424242;">건축년도:</strong> 
+                      <span style="color: #795548; font-weight: bold;">${realLandData.buildingYear.substring(0, 4)}년</span>
+                      <small style="color: #4CAF50;">(실제)</small>
+                    </div>
+                    ` : ''}
+                    ${realLandData?.floorCount ? `
+                    <div style="margin-bottom: 6px;">
+                      <strong style="color: #424242;">층수:</strong> 
+                      <span style="color: #607D8B; font-weight: bold;">지상 ${realLandData.floorCount}층${realLandData.undergroundFloor ? `, 지하 ${realLandData.undergroundFloor}층` : ''}</span>
+                      <small style="color: #4CAF50;">(실제)</small>
+                    </div>
+                    ` : ''}
+                    ${realLandData?.totalFloorArea ? `
+                    <div style="margin-bottom: 6px;">
+                      <strong style="color: #424242;">연면적:</strong> 
+                      <span style="color: #FF5722; font-weight: bold;">${Math.round(parseFloat(realLandData.totalFloorArea) * 100) / 100}㎡</span>
+                      <small style="color: #4CAF50;">(실제)</small>
+                    </div>
+                    ` : ''}
                     ${realLandData?.jiga ? `
                     <div style="margin-bottom: 6px;">
                       <strong style="color: #424242;">공시지가:</strong> 
@@ -332,10 +400,10 @@ const SimpleNaverMap: React.FC = () => {
 
               console.log(`토지 경계선 표시 완료 (${isRealData ? '실제 데이터' : '참고 데이터'})`);
               
-              // 경계선 영역으로 지도 중심 이동
-              const bounds = new window.naver.maps.LatLngBounds();
-              paths.forEach(path => bounds.extend(path));
-              map.fitBounds(bounds);
+              // 자동 확대 기능 제거 (사용자 요청)
+              // const bounds = new window.naver.maps.LatLngBounds();
+              // paths.forEach(path => bounds.extend(path));
+              // map.fitBounds(bounds);
             }
           } catch (error) {
             console.warn('토지 경계선 그리기 오류:', error);
@@ -476,6 +544,91 @@ const SimpleNaverMap: React.FC = () => {
               }
             }
             
+            // 6. 건물통합정보 조회 (건물명, 건물용도, 건축년도 등)
+            if (landData) {
+              try {
+                // 건물일반 정보 조회 API (더 정확한 건물 정보)
+                const buildingUrl = `/api/vworld/req/data?service=data&version=2.0&request=GetFeature&data=LT_C_ADEMD_INFO&key=${vworldApiKey}&domain=${currentDomain}&geometry=false&attribute=true&crs=EPSG:4326&geomFilter=POINT(${lng}%20${lat})&buffer=50&format=json`;
+                
+                console.log('브이월드 건물일반정보 API 조회 중...');
+                const buildingResponse = await fetch(buildingUrl);
+                const buildingData = await buildingResponse.json();
+                
+                console.log('브이월드 건물일반정보 API 응답:', buildingData);
+                
+                if (buildingData.response?.status === 'OK' && 
+                    buildingData.response?.result?.featureCollection?.features?.length > 0) {
+                  
+                  const buildingFeature = buildingData.response.result.featureCollection.features[0];
+                  const buildingProps = buildingFeature.properties;
+                  
+                  // 건물 정보 추가 (다양한 속성명 대응)
+                  landData.buildingName = buildingProps.buld_nm || buildingProps.BULD_NM || buildingProps.bild_nm || buildingProps.BILD_NM || 
+                                         buildingProps.building_nm || buildingProps.BUILDING_NM || '';
+                  landData.buildingUse = buildingProps.main_purps_cd_nm || buildingProps.MAIN_PURPS_CD_NM || buildingProps.purps_cd_nm || '';
+                  landData.buildingYear = buildingProps.use_apr_day || buildingProps.USE_APR_DAY || buildingProps.arch_year || '';
+                  landData.floorCount = buildingProps.grnd_flr_cnt || buildingProps.GRND_FLR_CNT || '';
+                  landData.undergroundFloor = buildingProps.ugrnd_flr_cnt || buildingProps.UGRND_FLR_CNT || '';
+                  landData.totalFloorArea = buildingProps.tot_flr_area || buildingProps.TOT_FLR_AREA || '';
+                  
+                  console.log('건물일반정보 추가 완료:', landData);
+                } else {
+                  // 대안 1: 건물층정보 조회
+                  try {
+                    const buildingFloorUrl = `/api/vworld/req/data?service=data&version=2.0&request=GetFeature&data=LT_C_ADSIDO_LAYER_INFO&key=${vworldApiKey}&domain=${currentDomain}&geometry=false&attribute=true&crs=EPSG:4326&geomFilter=POINT(${lng}%20${lat})&buffer=50&format=json`;
+                    
+                    console.log('브이월드 건물층정보 API 조회 중...');
+                    const buildingFloorResponse = await fetch(buildingFloorUrl);
+                    const buildingFloorData = await buildingFloorResponse.json();
+                    
+                    console.log('브이월드 건물층정보 API 응답:', buildingFloorData);
+                    
+                    if (buildingFloorData.response?.status === 'OK' && 
+                        buildingFloorData.response?.result?.featureCollection?.features?.length > 0) {
+                      
+                      const floorFeature = buildingFloorData.response.result.featureCollection.features[0];
+                      const floorProps = floorFeature.properties;
+                      
+                      landData.buildingName = floorProps.buld_nm || floorProps.BULD_NM || '';
+                      landData.buildingUse = floorProps.main_purps_cd_nm || floorProps.MAIN_PURPS_CD_NM || '';
+                      landData.buildingYear = floorProps.use_apr_day || floorProps.USE_APR_DAY || '';
+                      
+                      console.log('건물층정보 추가 완료:', landData);
+                    } else {
+                      // 대안 2: 주소기반 건물 정보 조회
+                      try {
+                        const altBuildingUrl = `/api/vworld/req/data?service=data&version=2.0&request=GetFeature&data=LT_C_ADSIDO_INFO&key=${vworldApiKey}&domain=${currentDomain}&geometry=false&attribute=true&crs=EPSG:4326&geomFilter=POINT(${lng}%20${lat})&buffer=100&format=json`;
+                        
+                        console.log('브이월드 대안 건물정보 API 조회 중...');
+                        const altBuildingResponse = await fetch(altBuildingUrl);
+                        const altBuildingData = await altBuildingResponse.json();
+                        
+                        console.log('브이월드 대안 건물정보 API 응답:', altBuildingData);
+                        
+                        if (altBuildingData.response?.status === 'OK' && 
+                            altBuildingData.response?.result?.featureCollection?.features?.length > 0) {
+                          
+                          const altFeature = altBuildingData.response.result.featureCollection.features[0];
+                          const altProps = altFeature.properties;
+                          
+                          landData.buildingName = altProps.buld_nm || altProps.BULD_NM || '';
+                          landData.buildingUse = altProps.main_purps_cd_nm || altProps.MAIN_PURPS_CD_NM || '';
+                          
+                          console.log('대안 건물정보 추가 완료:', landData);
+                        }
+                      } catch (altError) {
+                        console.warn('대안 건물정보 조회 오류:', altError);
+                      }
+                    }
+                  } catch (floorError) {
+                    console.warn('건물층정보 조회 오류:', floorError);
+                  }
+                }
+              } catch (error) {
+                console.warn('건물정보 조회 오류:', error);
+              }
+            }
+            
             return landData; // null이거나 실제 데이터 반환
             
           } catch (error) {
@@ -535,7 +688,40 @@ const SimpleNaverMap: React.FC = () => {
   }, []);
 
   return (
-    <div className="w-full h-screen">
+    <div className="w-full h-screen relative">
+      {/* 컨트롤 패널 */}
+      <div className="absolute top-4 left-4 z-10 bg-white rounded-lg shadow-lg p-3 space-y-2">
+        <div className="text-sm font-semibold text-gray-700 mb-2">지도 설정</div>
+        
+        {/* 지적도 토글 */}
+        <div className="flex items-center space-x-2">
+          <button 
+            onClick={() => (window as any).toggleCadastral?.()}
+            className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+              isCadastralMode 
+                ? 'bg-green-500 text-white' 
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
+          >
+            {isCadastralMode ? '지적도 ON' : '지적도 OFF'}
+          </button>
+        </div>
+
+        {/* 위성 모드 토글 */}
+        <div className="flex items-center space-x-2">
+          <button 
+            onClick={() => (window as any).toggleSatellite?.()}
+            className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+              isSatelliteMode 
+                ? 'bg-blue-500 text-white' 
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
+          >
+            {isSatelliteMode ? '위성 ON' : '위성 OFF'}
+          </button>
+        </div>
+      </div>
+
       {/* 지도 컨테이너 */}
       <div 
         ref={mapRef}

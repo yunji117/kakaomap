@@ -39,6 +39,7 @@ declare global {
 interface MapOptions {
   center?: LatLng;
   zoom?: number;
+  mapTypeId?: string;
   mapTypeControl?: boolean;
   mapTypeControlOptions?: {
     style: string;
@@ -66,9 +67,19 @@ interface LatLng {
   lng(): number;
 }
 
-interface NaverMap {
-  fitBounds(bounds: LatLngBounds): void;
-}
+    interface NaverMap {
+      // 기본 메서드들
+      setCenter(latlng: LatLng): void;
+      getCenter(): LatLng;
+      setZoom(zoom: number): void;
+      getZoom(): number;
+      fitBounds(bounds: LatLngBounds): void;
+      setOptions(options: Partial<MapOptions>): void;
+      
+      // 지도 타입 관련
+      setMapTypeId(mapTypeId: string): void;
+      getMapTypeId(): string;
+    }
 
 interface LatLngBounds {
   extend(point: LatLng): void;
